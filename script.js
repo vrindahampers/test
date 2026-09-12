@@ -100,6 +100,17 @@ bind("btn-mark-read", "click", async () => {
   });
   toast("All marked as read");
 });
+function bindNav() {
+  document.querySelectorAll("#main-nav a[data-page], #bottom-nav a[data-page]").forEach(a => {
+    a.addEventListener("click", () => {
+      const page = a.dataset.page;
+      if (!page) return;
+      if (page === "requests") return renderRequestList();
+      showPage(page);
+    });
+  });
+}
+
 bindNav();
 
 // Surface unexpected runtime errors via toast instead of failing silently.
