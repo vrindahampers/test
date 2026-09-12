@@ -63,15 +63,43 @@ function showPage(name) {
 }
 
 // Navigation is wired immediately so it keeps working even if a later step fails.
-function bindNav() {
-  document.querySelectorAll("[data-page]").forEach(a => {
-    a.addEventListener("click", () => {
-      const page = a.dataset.page;
-      if (page === "requests") { renderRequestList(); return; }
-      showPage(page);
-    });
-  });
+// ---------- Notifications ----------
+function renderNotifications(snap) {
+  const box = $("#notif-list");
+  box.innerHTML = "";
+  const items = [];
+  snap.forEach(c => items.push({ id: c.key, ...c.val() }));
+  items.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  for (const n of items) {
+    const el = document.createElement("div");
+    el.className = "list-item" + (n.read ? "" : " unread");
+    let icon = "💬";
+    if (n.type === "follow") icon = "👤";
+    else if (n.type === "follow_request") icon = "📩";
+    else if (n.type === "follow_accept") icon = "✅";
+    else if (n.type === "message") icon = "💬";
+    el.innerHTML = `<div class="grow"><div class="bold text">${icon} ${escapeHtml(n.text || "")}</div>
+      <div class="muted small">${timeStr(n.ts)}</div></div>`;
+    if (!n.read) {
+      el.onclick = async () => {
+        await db.ref("notifications/" + state.uid + "/" + n.id + "/read").set(true);
+        el.classList.add("read");
+      };
+    }
+    box.appendChild(el);
+  }
+  if (!items.length) box.innerHTML = "<p class='muted small'>No notifications yet</p>";
 }
+function renderNotificationsPage() {
+  db.ref("notifications/" + state.uid).orderByChild("ts").limitToLast(100).once("value").then(renderNotifications);
+}
+bind("btn-mark-read", "click", async () => {
+  const ref = db.ref("notifications/" + state.uid);
+  ref.once("value", snap => {
+    snap.forEach(c => { if (!c.val().read) db.ref("notifications/" + state.uid + "/" + c.key + "/read").set(true); });
+  });
+  toast("All marked as read");
+});
 bindNav();
 
 // Surface unexpected runtime errors via toast instead of failing silently.
@@ -594,7 +622,7 @@ async function openChat(peerUid) {
   $("chat-avatar").src = avatarFor(peer);
   $("msg-search").value = "";
   $("msg-search").classList.add("hidden");
-  renderPinned();
+  try { renderPinned(); } catch (_) {}
   showPage("chat");
   bindPeerPresence(peerUid);
   bindTypingIndicator(cid, peerUid);
@@ -718,7 +746,120 @@ async function pushMessage(msg) {
     state.profile.username + ": " + (msg.text || "📷 Photo"), cid);
 }
 
-// Image messages (stored in Firebase Storage, only URL in DB)
+// ---------- Message helpers (reply / react / pin / edit / delete / report) ----------
+
+// Push a notification to another user's notification list
+async function pushNotification(targetUid, type, text, chatId) {
+  const nid = await db.ref("notifications/" + targetUid).push().key;
+  await db.ref("notifications/" + targetUid + "/" + nid).set({
+    type: type || "message",
+    text: text || "",
+    chatId: chatId || null,
+    read: false,
+    ts: firebase.database.ServerValue.TIMESTAMP
+  });
+}
+
+// Notification list listener + badge
+function listenNotifications(uid) {
+  track(db.ref("notifications/" + uid), "value", snap => {
+    const n = snap.numChildren();
+    const badge = $("#notif-badge");
+    badge.classList.toggle("hidden", n === 0);
+    badge.textContent = n;
+  });
+}
+
+// Render pinned messages banner
+function renderPinned() {
+  const banner = $("#pinned-banner");
+  if (!currentChat) { banner.classList.add("hidden"); return; }
+  db.ref("chats/" + currentChat.cid + "/meta/pinned").once("value").then(snap => {
+    const ids = [];
+    snap.forEach(c => ids.push(c.key));
+    if (!ids.length) { banner.classList.add("hidden"); return; }
+    db.ref("messages/" + currentChat.cid).once("value").then(ms => {
+      const list = [];
+      ms.forEach(c => { const m = c.val(); if (ids.includes(c.key)) list.push(m); });
+      banner.innerHTML = list.map(m =>
+        `<div class="pinned-item"><b>${escapeHtml(m.sender === state.uid ? "You" : (currentChat?.peerDisplayName || "User"))}:</b> ${escapeHtml(m.text || "📷 Photo")} <span class="muted small">${timeStr(m.timestamp)}</span></div>`
+      ).join("");
+      banner.classList.remove("hidden");
+    });
+  });
+}
+
+// Show reply preview
+function showReplyPreview(m) {
+  const el = $("#reply-preview");
+  el.textContent = "↩ Replying to: " + (m.text || "Image");
+  el.classList.toggle("hidden", false);
+  setTimeout(() => el.classList.toggle("hidden", true), 4000);
+}
+
+// Message reactions
+const EMOJIS = ["👍","❤️","😂","😮","😢","🚀"];
+function reactToMessage(m) {
+  if (!currentChat) return;
+  const existing = m.reactions || {};
+  // toggle first emoji for simplicity
+  const key = Object.keys(EMOJIS)[0];
+  const next = { ...existing };
+  next[key] = ((next[key] || 0) + 1) % 2 ? (next[key] || 0) + 1 : undefined;
+  if (next[key] === undefined) delete next[key];
+  db.ref("messages/" + currentChat.cid + "/" + m.id + "/reactions").set(next);
+  toast("Reacted 👍");
+}
+
+// Pin / unpin
+function togglePin(m) {
+  if (!currentChat) return;
+  db.ref("chats/" + currentChat.cid + "/meta/pinned/" + m.id).once("value").then(s => {
+    if (s.exists()) db.ref("chats/" + currentChat.cid + "/meta/pinned/" + m.id).remove();
+    else db.ref("chats/" + currentChat.cid + "/meta/pinned/" + m.id).set(true);
+    renderPinned();
+    toast(s.exists() ? "Unpinned" : "Pinned");
+  });
+}
+
+// Edit message
+async function editMessage(m) {
+  if (!currentChat || m.sender !== state.uid) return;
+  const newText = prompt("Edit message:", m.text || "");
+  if (newText === null || !newText.trim()) return;
+  await db.ref("messages/" + currentChat.cid + "/" + m.id).update({
+    text: newText.trim(),
+    edited: firebase.database.ServerValue.TIMESTAMP
+  });
+  toast("Edited");
+}
+
+// Soft-delete message
+async function deleteMessage(m) {
+  if (!currentChat || m.sender !== state.uid) return;
+  if (!confirmBox("Delete this message? (can't be undone by you)")) return;
+  await db.ref("messages/" + currentChat.cid + "/" + m.id).update({ deleted: true });
+  toast("Deleted");
+}
+
+// Report a message (creates a report entry for the message sender)
+async function reportMessage(m) {
+  if (!currentChat) return;
+  await db.ref("reports").push().set({
+    reportedUid: m.sender,
+    type: "message",
+    reason: "Inappropriate message",
+    reporterUid: state.uid,
+    chatId: currentChat.cid,
+    messageId: m.id,
+    messageText: m.text || "(image)",
+    status: "pending",
+    ts: firebase.database.ServerValue.TIMESTAMP
+  });
+  toast("Message reported");
+}
+
+// ---------- Image messages (stored in Firebase Storage, only URL in DB) ----------
 bind("chat-image", "change", async e => {
   if (!currentChat) return;
   if (isRestricted(state.profile)) return toast(restrictMsg(state.profile));
