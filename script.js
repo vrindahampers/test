@@ -520,18 +520,23 @@ async function canMessage(uid) {
 }
 
 function loadChatList() {
-  track(db.ref("chats"), "value", snap => {
+  track(db.ref("userChats/" + state.uid), "value", async snap => {
     const box = $("chat-list");
     box.innerHTML = "";
     const filter = ($("chat-search").value || "").toLowerCase();
-    const chats = snap.val() || {};
-    Object.keys(chats).forEach(async cid => {
-      if (!cid.includes(state.uid)) return;
+    const cids = Object.keys(snap.val() || {});
+    const items = [];
+    for (const cid of cids) {
       const peerUid = cid.split("_").find(u => u !== state.uid);
-      const meta = chats[cid].meta || {};
-      if (filter && !(meta.lastMessage || "").toLowerCase().includes(filter)) return;
+      // read each conversation's own meta (rules allow participants to read their chat)
+      const meta = (await db.ref("chats/" + cid + "/meta").get()).val() || {};
+      if (filter && !(meta.lastMessage || "").toLowerCase().includes(filter)) continue;
       const peer = (await db.ref("users/" + peerUid).get()).val();
-      if (!peer) return;
+      if (!peer) continue;
+      items.push({ cid, peerUid, peer, meta });
+    }
+    items.sort((a, b) => (b.meta.lastTimestamp || 0) - (a.meta.lastTimestamp || 0));
+    items.forEach(({ peerUid, peer, meta }) => {
       const row = document.createElement("div");
       row.className = "list-item";
       row.innerHTML = `
@@ -564,8 +569,10 @@ async function openChat(peerUid) {
   bindPeerPresence(peerUid);
   bindTypingIndicator(cid, peerUid);
   listenMessages(cid);
-  db.ref("chats/" + cid + "/meta/participants/" + state.uid).set(true);
-  db.ref("chats/" + cid + "/meta/participants/" + peerUid).set(true);
+  db.ref("chats/" + cid + "/participants/" + state.uid).set(true);
+  db.ref("chats/" + cid + "/participants/" + peerUid).set(true);
+  db.ref("userChats/" + state.uid + "/" + cid).set(true);
+  db.ref("userChats/" + peerUid + "/" + cid).set(true);
 }
 $("btn-back-chats").onclick = () => { clearChatListeners(); currentChat = null; showPage("chats"); };
 
@@ -792,6 +799,9 @@ $("btn-chat-menu").onclick = async () => {
     if (await confirmBox("Delete this entire conversation for BOTH users? This cannot be undone.")) {
       await db.ref("messages/" + cid).remove();
       await db.ref("chats/" + cid).remove();
+      await db.ref("userChats/" + state.uid + "/" + cid).remove();
+      const other = cid.split("_").find(u => u !== state.uid);
+      await db.ref("userChats/" + other + "/" + cid).remove();
       toast("Conversation deleted");
       clearChatListeners();
       showPage("chats");
