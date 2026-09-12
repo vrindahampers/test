@@ -145,6 +145,23 @@ function showPage(name) {
   $("page-" + name)?.classList.remove("hidden");
   document.querySelectorAll("[data-page]").forEach(a => a.classList.toggle("active", a.dataset.page === name));
 }
+// Nav wiring is attached IMMEDIATELY after showPage so that navigation keeps working
+// even if a later load step had an error.
+function bindNav() {
+  document.querySelectorAll("[data-page]").forEach(a => {
+    a.addEventListener("click", () => {
+      const page = a.dataset.page;
+      if (page === "requests") { renderRequestList(); return; } // open the requests list
+      showPage(page);
+    });
+  });
+}
+bindNav();
+
+// Surface any unexpected runtime error via toast (helps debugging)
+window.addEventListener("error", e => {
+  try { toast("Error: " + (e.message || "unknown")); } catch (_) {}
+});
 
 // ---------- 3. Auth state / session ----------
 auth.onAuthStateChanged(async user => {
@@ -849,12 +866,5 @@ $("btn-mark-read").onclick = () => {
   });
 };
 
-// ---------- 17. Nav wiring ----------
-document.querySelectorAll("[data-page]").forEach(a => {
-  a.addEventListener("click", () => {
-    const page = a.dataset.page;
-    if (page === "requests") return; // requests link opens the request list directly
-    showPage(page);
-  });
-});
+// (Navigation handlers are attached near the top of the file in bindNav().)
 
