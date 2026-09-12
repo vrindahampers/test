@@ -75,8 +75,7 @@ $("btn-signup").onclick = async () => {
       username, usernameLower: uname, displayName, bio: "",
       email, photoURL: "", createdAt: firebase.database.ServerValue.TIMESTAMP,
       status: "active", isPrivate: false,
-      settings: { whoCanMessage: "followers", showOnline: true, showLastSeen: true },
-      counters: { followers: 0, following: 0 }
+      settings: { whoCanMessage: "followers", showOnline: true, showLastSeen: true }
     });
   } catch (err) { authMsg(err.message); }
 };
@@ -213,13 +212,14 @@ function fillProfilePage(p) {
   $("edit-displayname").value = p.displayName || "";
   $("edit-bio").value = p.bio || "";
   $("edit-private").checked = !!p.isPrivate;
-  $("profile-stats").innerHTML = statsHtml(p);
+  renderStats(state.uid, p.createdAt, "profile-stats");
 }
-function statsHtml(p) {
-  const c = p.counters || {};
-  const created = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—";
-  return `<div><b>${c.followers || 0}</b><span>Followers</span></div>
-          <div><b>${c.following || 0}</b><span>Following</span></div>
+async function renderStats(uid, createdAt, elId) {
+  const f = (await db.ref("followers/" + uid).get()).numChildren();
+  const g = (await db.ref("following/" + uid).get()).numChildren();
+  const created = createdAt ? new Date(createdAt).toLocaleDateString() : "—";
+  $(elId).innerHTML = `<div><b>${f}</b><span>Followers</span></div>
+          <div><b>${g}</b><span>Following</span></div>
           <div><b style="font-size:14px">${created}</b><span>Joined</span></div>`;
 }
 $("btn-save-profile").onclick = async () => {
@@ -282,7 +282,7 @@ async function openUserProfile(u, uid) {
   $("user-name").textContent = p.displayName || "";
   $("user-username").textContent = "@" + p.username + (p.isPrivate ? " 🔒" : "");
   $("user-bio").textContent = p.bio || "";
-  $("user-stats").innerHTML = statsHtml(p);
+  renderStats(uid, p.createdAt, "user-stats");
   $("user-list-area").innerHTML = "";
   await renderUserActions(uid, p);
   showPage("user");
@@ -314,6 +314,29 @@ async function renderUserActions(uid, p) {
     const req = await db.ref("followRequests/" + uid + "/" + mine).get();
     if (req.exists()) add("Cancel request", false, false, () => cancelFollowRequest(uid));
     else add("Request to follow", true, false, () => sendFollowRequest(uid));
+  } else {
+    add(following ? "Unfollow" : "Follow", !following, false,
+      following ? () => unfollow(uid) : () => follow(uid));
+  }
+  if (!theyBlocked && (await canMessage(uid))) add("Message", false, false, () => openChat(uid));
+  add(iBlocked ? "Unblock" : "Block", false, false, () => iBlocked ? unblockUser(uid) : blockUser(uid));
+  add("Report", false, false, () => reportUser(uid));
+
+  if (!p.isPrivate || following) {
+    $("user-list-area").innerHTML = "";
+    [["Followers", "followers/" + uid], ["Following", "following/" + uid]].forEach(([title, node]) => {
+      const b = mkBtn(title, false, false, () => showUserList(uid, node, title));
+      $("user-list-area").appendChild(b);
+    });
+  }
+}
+function mkBtn(label, primary, danger, fn) {
+  const b = document.createElement("button");
+  b.className = "btn small" + (primary ? " primary" : "") + (danger ? " danger" : "");
+  b.textContent = label;
+  b.onclick = fn;
+  return b;
+}
 
 // ---------- 8. Follow / requests / lists ----------
 async function follow(uid) {
@@ -321,8 +344,6 @@ async function follow(uid) {
   await Promise.all([
     db.ref("following/" + state.uid + "/" + uid).set(true),
     db.ref("followers/" + uid + "/" + state.uid).set(true),
-    db.ref("users/" + state.uid + "/counters/following").transaction(v => (v || 0) + 1),
-    db.ref("users/" + uid + "/counters/followers").transaction(v => (v || 0) + 1),
     pushNotification(uid, "follow", state.profile.username + " started following you")
   ]);
   toast("Followed");
@@ -331,9 +352,7 @@ async function follow(uid) {
 async function unfollow(uid) {
   await Promise.all([
     db.ref("following/" + state.uid + "/" + uid).remove(),
-    db.ref("followers/" + uid + "/" + state.uid).remove(),
-    db.ref("users/" + state.uid + "/counters/following").transaction(v => Math.max(0, (v || 1) - 1)),
-    db.ref("users/" + uid + "/counters/followers").transaction(v => Math.max(0, (v || 1) - 1))
+    db.ref("followers/" + uid + "/" + state.uid).remove()
   ]);
   toast("Unfollowed");
   openUserProfile(null, uid);
@@ -372,7 +391,6 @@ async function showUserList(uid, node, title) {
     if (u) $("generic-list").appendChild(userRow({ ...u, uid: childUid }, "View"));
   }
 }
-
 async function renderRequestList() {
   listCtx = "requests";
   $("list-title").textContent = "Follow requests";
@@ -381,13 +399,39 @@ async function renderRequestList() {
   const snap = await db.ref("followRequests/" + state.uid).get();
   for (const senderUid of Object.keys(snap.val() || {})) {
     const u = (await db.ref("users/" + senderUid).get()).val();
+    if (!u) continue;
+    const row = document.createElement("div");
+    row.className = "list-item";
+    row.innerHTML = `<img class="avatar" src="${escapeHtml(avatarFor(u))}">
+      <div class="grow"><div class="bold text">${escapeHtml(u.displayName)}</div>
+      <div class="muted small">@${escapeHtml(u.username)}</div></div>`;
+    row.append(mkBtn("Accept", true, false, () => acceptRequest(senderUid)),
+               mkBtn("Reject", false, true, () => rejectRequest(senderUid)));
+    $("generic-list").appendChild(row);
+  }
+async function acceptRequest(uid) {
+  await Promise.all([
+    db.ref("followRequests/" + state.uid + "/" + uid).remove(),
+    db.ref("following/" + uid + "/" + state.uid).set(true),
+    db.ref("followers/" + state.uid + "/" + uid).set(true),
+    pushNotification(uid, "follow_accept", state.profile.username + " accepted your follow request")
+  ]);
+  toast("Request accepted");
+  renderRequestList();
+}
+async function rejectRequest(uid) {
+  await db.ref("followRequests/" + state.uid + "/" + uid).remove();
+  toast("Request rejected");
+  renderRequestList();
+}
+document.querySelector("#nav-requests").addEventListener("click", e => { e.stopPropagation(); renderRequestList(); });
 
 // ---------- 9. Block & report ----------
 async function blockUser(uid) {
   if (!(await confirmBox("Block this user? You will not be able to message each other."))) return;
   await Promise.all([
     db.ref("blocks/" + state.uid + "/" + uid).set(true),
-    db.ref("blocks/" + uid + "/" + state.uid).set(true) // mutual block
+    db.ref("blocks/" + uid + "/" + state.uid).set(true)
   ]);
   toast("User blocked");
   renderBlockedList();
@@ -441,59 +485,6 @@ $("btn-save-settings").onclick = async () => {
   });
   toast("Settings saved");
 };
-
-    if (!u) continue;
-    const row = document.createElement("div");
-    row.className = "list-item";
-    row.innerHTML = `<img class="avatar" src="${escapeHtml(avatarFor(u))}">
-      <div class="grow"><div class="bold text">${escapeHtml(u.displayName)}</div>
-      <div class="muted small">@${escapeHtml(u.username)}</div></div>`;
-    row.append(mkBtn("Accept", true, false, () => acceptRequest(senderUid)),
-               mkBtn("Reject", false, true, () => rejectRequest(senderUid)));
-    $("generic-list").appendChild(row);
-  }
-}
-async function acceptRequest(uid) {
-  await Promise.all([
-    db.ref("followRequests/" + state.uid + "/" + uid).remove(),
-    db.ref("following/" + uid + "/" + state.uid).set(true),
-    db.ref("followers/" + state.uid + "/" + uid).set(true),
-    db.ref("users/" + uid + "/counters/following").transaction(v => (v || 0) + 1),
-    db.ref("users/" + state.uid + "/counters/followers").transaction(v => (v || 0) + 1),
-    pushNotification(uid, "follow_accept", state.profile.username + " accepted your follow request")
-  ]);
-  toast("Request accepted");
-  renderRequestList();
-}
-async function rejectRequest(uid) {
-  await db.ref("followRequests/" + state.uid + "/" + uid).remove();
-  toast("Request rejected");
-  renderRequestList();
-}
-document.querySelector("#nav-requests").addEventListener("click", e => { e.stopPropagation(); renderRequestList(); });
-
-  } else {
-    add(following ? "Unfollow" : "Follow", !following, false,
-      following ? () => unfollow(uid) : () => follow(uid));
-  }
-  if (!theyBlocked && (await canMessage(uid))) add("Message", false, false, () => openChat(uid));
-  add(iBlocked ? "Unblock" : "Block", false, false, () => iBlocked ? unblockUser(uid) : blockUser(uid));
-  add("Report", false, false, () => reportUser(uid));
-
-  if (!p.isPrivate || following) {
-    $("user-list-area").innerHTML = "";
-    [["Followers", "followers/" + uid], ["Following", "following/" + uid]].forEach(([title, node]) => {
-      const b = mkBtn(title, false, false, () => showUserList(uid, node, title));
-      $("user-list-area").appendChild(b);
-    });
-  }
-}
-function mkBtn(label, primary, danger, fn) {
-  const b = document.createElement("button");
-  b.className = "btn small" + (primary ? " primary" : "") + (danger ? " danger" : "");
-  b.textContent = label;
-  b.onclick = fn;
-  return b;
 }
 
 
