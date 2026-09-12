@@ -261,19 +261,41 @@ $("avatar-file").onchange = async e => {
 
 
 // ---------- 6. User search ----------
-$("user-search").oninput = async e => {
-  const q = e.target.value.trim().toLowerCase();
-  const box = $("user-results");
-  box.innerHTML = "";
-  if (q.length < 2) return;
-  const snap = await db.ref("usernames").orderByKey().startAt(q).endAt(q + "\uf8ff").get();
-  const uids = [...new Set(Object.values(snap.val() || {}))];
-  for (const uid of uids.slice(0, 20)) {
-    if (uid === state.uid) continue;
-    const u = (await db.ref("users/" + uid).get()).val();
-    if (!u || u.status === "banned") continue;
-    box.appendChild(userRow({ ...u, uid }, "View"));
-  }
+let searchTimer = null;
+$("user-search").oninput = e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(async () => {
+    const q = e.target.value.trim().toLowerCase();
+    const box = $("user-results");
+    box.innerHTML = "";
+    if (q.length < 2) return;
+    const found = new Map(); // uid -> profile
+    // 1) Fast path: the usernames index (prefix search).
+    try {
+      const snap = await db.ref("usernames").orderByKey().startAt(q).endAt(q + "\uf8ff").get();
+      for (const uid of Object.values(snap.val() || {})) {
+        if (found.has(uid)) continue;
+        const u = (await db.ref("users/" + uid).get()).val();
+        if (u && u.status !== "banned") found.set(uid, { ...u, uid });
+      }
+    } catch (err) { /* index may be missing; fallback below */ }
+    // 2) Fallback: scan users by username or display name (works even if the index is empty).
+    if (found.size < 20) {
+      try {
+        const all = (await db.ref("users").get()).val() || {};
+        for (const [uid, u] of Object.entries(all)) {
+          if (found.size >= 20) break;
+          if (found.has(uid)) continue;
+          const hay = ((u.usernameLower || u.username || "") + " " + (u.displayName || "")).toLowerCase();
+          if (hay.includes(q)) {
+            if (u.status !== "banned") found.set(uid, { ...u, uid });
+          }
+        }
+      } catch (err) { /* not permitted — user just won't get extra results */ }
+    }
+    found.forEach(u => { if (u.uid !== state.uid) box.appendChild(userRow(u, "View")); });
+    if (!box.innerHTML) box.innerHTML = "<p class='muted small'>No users found</p>";
+  }, 400);
 };
 
 function userRow(u, btnLabel) {
