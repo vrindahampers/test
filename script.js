@@ -8,6 +8,17 @@ const $ = id => document.getElementById(id);
 const state = { uid: null, profile: null, listeners: [] };
 const DEFAULT_AVATAR = "https://ui-avatars.com/api/?background=00a884&color=fff&name=";
 
+/*
+ * bind(id, event, fn) — safely attach a handler. If the element is missing
+ * (e.g. during a partial/outdated deployment) we log a warning instead of
+ * throwing and breaking the rest of the app.
+ */
+function bind(id, event, fn) {
+  const el = document.getElementById(id);
+  if (!el) { console.log("SKIP_MISSING_ELEMENT #" + id); return; }
+  el.addEventListener(event, fn);
+}
+
 function toast(msg) {
   const t = $("toast");
   t.textContent = msg;
@@ -36,10 +47,37 @@ function confirmBox(text) {
   return new Promise(resolve => {
     $("confirm-text").textContent = text;
     $("confirm-modal").classList.remove("hidden");
-    $("confirm-yes").onclick = () => { $("confirm-modal").classList.add("hidden"); resolve(true); };
-    $("confirm-no").onclick = () => { $("confirm-modal").classList.add("hidden"); resolve(false); };
+    bind("confirm-yes", "click", () => { $("confirm-modal").classList.add("hidden"); resolve(true); });
+    bind("confirm-no", "click", () => { $("confirm-modal").classList.add("hidden"); resolve(false); });
   });
 }
+function track(ref, event, cb) { const h = ref.on(event, cb); state.listeners.push({ ref, event, h }); return h; }
+function clearListeners() {
+  state.listeners.forEach(l => l.ref.off(l.event, l.h));
+  state.listeners = [];
+}
+function showPage(name) {
+  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
+  $("page-" + name)?.classList.remove("hidden");
+  document.querySelectorAll("[data-page]").forEach(a => a.classList.toggle("active", a.dataset.page === name));
+}
+
+// Navigation is wired immediately so it keeps working even if a later step fails.
+function bindNav() {
+  document.querySelectorAll("[data-page]").forEach(a => {
+    a.addEventListener("click", () => {
+      const page = a.dataset.page;
+      if (page === "requests") { renderRequestList(); return; }
+      showPage(page);
+    });
+  });
+}
+bindNav();
+
+// Surface unexpected runtime errors via toast instead of failing silently.
+window.addEventListener("error", e => {
+  try { toast("Error: " + (e.message || "unknown")); } catch (_) {}
+});
 
 // ---------- 2. Authentication ----------
 function authMsg(text) {
@@ -51,13 +89,13 @@ function authView(name) {
   ["login", "signup", "email-link"].forEach(v => $(v + "-view").classList.add("hidden"));
   $(name + "-view").classList.remove("hidden");
 }
-$("link-signup").onclick = e => { e.preventDefault(); authView("signup"); };
-$("link-login").onclick = e => { e.preventDefault(); authView("login"); };
-$("link-login2").onclick = e => { e.preventDefault(); authView("login"); };
-$("link-email-login").onclick = e => { e.preventDefault(); authView("email-link"); };
+bind("link-signup", "click", e => { e.preventDefault(); authView("signup"); });
+bind("link-login", "click", e => { e.preventDefault(); authView("login"); });
+bind("link-login2", "click", e => { e.preventDefault(); authView("login"); });
+bind("link-email-login", "click", e => { e.preventDefault(); authView("email-link"); });
 
 // --- Email + Password signup ---
-$("btn-signup").onclick = async () => {
+bind("btn-signup", "click", async () => {
   const username = $("su-username").value.trim();
   const displayName = $("su-display").value.trim() || username;
   const email = $("su-email").value.trim().toLowerCase();
@@ -70,7 +108,7 @@ $("btn-signup").onclick = async () => {
     if (snap.exists()) return authMsg("That username is taken");
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     await cred.user.sendEmailVerification().catch(() => {});
-    await db.ref("usernames/" + uname).set(cred.user.uid); // rules require value === uid
+    await db.ref("usernames/" + uname).set(cred.user.uid);
     await db.ref("users/" + cred.user.uid).set({
       username, usernameLower: uname, displayName, bio: "",
       email, photoURL: "", createdAt: firebase.database.ServerValue.TIMESTAMP,
@@ -78,17 +116,15 @@ $("btn-signup").onclick = async () => {
       settings: { whoCanMessage: "followers", showOnline: true, showLastSeen: true }
     });
   } catch (err) { authMsg(err.message); }
-};
+});
 
 // --- Login (email OR username + password) ---
-$("btn-login").onclick = async () => {
+bind("btn-login", "click", async () => {
   const id = $("login-identifier").value.trim();
   const password = $("login-password").value;
   try {
     let email = id;
     if (!id.includes("@")) {
-      // Username login: look up username → uid mapping, then that user's email.
-      // The password is only ever sent to Firebase Auth — never stored in the database.
       const uidSnap = await db.ref("usernames/" + id.toLowerCase()).get();
       if (!uidSnap.exists()) return authMsg("Unknown username");
       const userSnap = await db.ref("users/" + uidSnap.val()).get();
@@ -97,7 +133,7 @@ $("btn-login").onclick = async () => {
     }
     await auth.signInWithEmailAndPassword(email, password);
   } catch (err) { authMsg(err.message); }
-};
+});
 
 // --- Forgot / reset password ---
 function sendReset(email) {
@@ -106,10 +142,10 @@ function sendReset(email) {
     .then(() => toast("Password reset email sent"))
     .catch(err => authMsg(err.message));
 }
-$("link-forgot").onclick = e => { e.preventDefault(); sendReset($("login-identifier").value.trim()); };
+bind("link-forgot", "click", e => { e.preventDefault(); sendReset($("login-identifier").value.trim()); });
 
 // --- Email link (passwordless) login ---
-$("btn-send-link").onclick = () => {
+bind("btn-send-link", "click", () => {
   const email = $("el-email").value.trim();
   if (!email) return authMsg("Enter your email");
   const actionCodeSettings = { url: location.origin + location.pathname, handleCodeInApp: true };
@@ -119,11 +155,12 @@ $("btn-send-link").onclick = () => {
       authMsg("Link sent! Open it in this browser to log in.");
     })
     .catch(err => authMsg(err.message));
-};
+});
 
-// --- Logout + reset pw ---
-$("btn-logout").onclick = $("btn-logout2").onclick = () => auth.signOut();
-$("btn-forgot-pw").onclick = () => sendReset(state.profile?.email);
+// --- Logout + reset password ---
+bind("btn-logout", "click", () => auth.signOut());
+bind("btn-logout2", "click", () => auth.signOut());
+bind("btn-forgot-pw", "click", () => sendReset(state.profile?.email));
 
 // Handle returning from an email-link login
 if (auth.isSignInWithEmailLink(window.location.href)) {
@@ -135,35 +172,8 @@ if (auth.isSignInWithEmailLink(window.location.href)) {
   }
 }
 
-function track(ref, event, cb) { const h = ref.on(event, cb); state.listeners.push({ ref, event, h }); return h; }
-function clearListeners() {
-  state.listeners.forEach(l => l.ref.off(l.event, l.h));
-  state.listeners = [];
-}
-function showPage(name) {
-  document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
-  $("page-" + name)?.classList.remove("hidden");
-  document.querySelectorAll("[data-page]").forEach(a => a.classList.toggle("active", a.dataset.page === name));
-}
-// Nav wiring is attached IMMEDIATELY after showPage so that navigation keeps working
-// even if a later load step had an error.
-function bindNav() {
-  document.querySelectorAll("[data-page]").forEach(a => {
-    a.addEventListener("click", () => {
-      const page = a.dataset.page;
-      if (page === "requests") { renderRequestList(); return; } // open the requests list
-      showPage(page);
-    });
-  });
-}
-bindNav();
 
-// Surface any unexpected runtime error via toast (helps debugging)
-window.addEventListener("error", e => {
-  try { toast("Error: " + (e.message || "unknown")); } catch (_) {}
-});
-
-// ---------- 3. Auth state / session ----------
+// ---------- 3. Session ----------
 auth.onAuthStateChanged(async user => {
   clearListeners();
   if (!user) {
@@ -176,7 +186,6 @@ auth.onAuthStateChanged(async user => {
   $("auth-page").classList.add("hidden");
   $("app-page").classList.remove("hidden");
 
-  // Listen to own profile (also detects admin status changes instantly)
   track(db.ref("users/" + user.uid), "value", snap => {
     const p = snap.val();
     if (!p) return;
@@ -205,7 +214,6 @@ function checkRestriction(p) {
     }
   }
 }
-
 function renderMyHeader(p) {
   $("my-avatar").src = avatarFor(p);
   $("my-displayname").textContent = p.displayName || p.username;
@@ -223,7 +231,7 @@ function setupPresence(uid) {
   });
 }
 
-// ---------- 5. My profile page ----------
+// ---------- 5. My profile ----------
 function fillProfilePage(p) {
   $("profile-avatar").src = avatarFor(p);
   $("edit-displayname").value = p.displayName || "";
@@ -239,7 +247,7 @@ async function renderStats(uid, createdAt, elId) {
           <div><b>${g}</b><span>Following</span></div>
           <div><b style="font-size:14px">${created}</b><span>Joined</span></div>`;
 }
-$("btn-save-profile").onclick = async () => {
+bind("btn-save-profile", "click", async () => {
   if (isRestricted(state.profile)) return toast(restrictMsg(state.profile));
   const displayName = $("edit-displayname").value.trim();
   if (!displayName) return toast("Display name required");
@@ -247,30 +255,28 @@ $("btn-save-profile").onclick = async () => {
     displayName, bio: $("edit-bio").value.trim(), isPrivate: $("edit-private").checked
   });
   toast("Profile saved");
-};
-$("avatar-file").onchange = async e => {
+});
+bind("avatar-file", "change", async e => {
   if (isRestricted(state.profile)) return toast(restrictMsg(state.profile));
   const file = e.target.files[0];
   if (!file) return;
-  const path = "profilePictures/" + state.uid + "/" + Date.now();
-  const snap = await storage.ref(path).put(file);   // big files go to Storage, never the DB
+  const snap = await storage.ref("profilePictures/" + state.uid + "/" + Date.now()).put(file);
   const url = await snap.ref.getDownloadURL();
   await db.ref("users/" + state.uid).update({ photoURL: url });
   toast("Profile picture updated");
-};
+});
 
 
 // ---------- 6. User search ----------
 let searchTimer = null;
-$("user-search").oninput = e => {
+bind("user-search", "input", e => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     const q = e.target.value.trim().toLowerCase();
     const box = $("user-results");
     box.innerHTML = "";
     if (q.length < 2) return;
-    const found = new Map(); // uid -> profile
-    // 1) Fast path: the usernames index (prefix search).
+    const found = new Map();
     try {
       const snap = await db.ref("usernames").orderByKey().startAt(q).endAt(q + "\uf8ff").get();
       for (const uid of Object.values(snap.val() || {})) {
@@ -279,7 +285,6 @@ $("user-search").oninput = e => {
         if (u && u.status !== "banned") found.set(uid, { ...u, uid });
       }
     } catch (err) { /* index may be missing; fallback below */ }
-    // 2) Fallback: scan users by username or display name (works even if the index is empty).
     if (found.size < 20) {
       try {
         const all = (await db.ref("users").get()).val() || {};
@@ -287,16 +292,14 @@ $("user-search").oninput = e => {
           if (found.size >= 20) break;
           if (found.has(uid)) continue;
           const hay = ((u.usernameLower || u.username || "") + " " + (u.displayName || "")).toLowerCase();
-          if (hay.includes(q)) {
-            if (u.status !== "banned") found.set(uid, { ...u, uid });
-          }
+          if (hay.includes(q) && u.status !== "banned") found.set(uid, { ...u, uid });
         }
-      } catch (err) { /* not permitted — user just won't get extra results */ }
+      } catch (err) { /* not permitted */ }
     }
     found.forEach(u => { if (u.uid !== state.uid) box.appendChild(userRow(u, "View")); });
     if (!box.innerHTML) box.innerHTML = "<p class='muted small'>No users found</p>";
   }, 400);
-};
+});
 
 function userRow(u, btnLabel) {
   const el = document.createElement("div");
@@ -327,7 +330,7 @@ async function openUserProfile(u, uid) {
   showPage("user");
 }
 let viewingUser = null;
-$("btn-back-user").onclick = () => showPage("search");
+bind("btn-back-user", "click", () => showPage("search"));
 
 async function renderUserActions(uid, p) {
   const box = $("user-actions");
@@ -364,8 +367,7 @@ async function renderUserActions(uid, p) {
   if (!p.isPrivate || following) {
     $("user-list-area").innerHTML = "";
     [["Followers", "followers/" + uid], ["Following", "following/" + uid]].forEach(([title, node]) => {
-      const b = mkBtn(title, false, false, () => showUserList(uid, node, title));
-      $("user-list-area").appendChild(b);
+      $("user-list-area").appendChild(mkBtn(title, false, false, () => showUserList(uid, node, title)));
     });
   }
 }
@@ -376,6 +378,7 @@ function mkBtn(label, primary, danger, fn) {
   b.onclick = fn;
   return b;
 }
+
 
 // ---------- 8. Follow / requests / lists ----------
 async function follow(uid) {
@@ -448,6 +451,7 @@ async function renderRequestList() {
                mkBtn("Reject", false, true, () => rejectRequest(senderUid)));
     $("generic-list").appendChild(row);
   }
+}
 async function acceptRequest(uid) {
   await Promise.all([
     db.ref("followRequests/" + state.uid + "/" + uid).remove(),
@@ -463,7 +467,6 @@ async function rejectRequest(uid) {
   toast("Request rejected");
   renderRequestList();
 }
-document.querySelector("#nav-requests").addEventListener("click", e => { e.stopPropagation(); renderRequestList(); });
 
 // ---------- 9. Block & report ----------
 async function blockUser(uid) {
@@ -516,15 +519,14 @@ function fillSettingsPage(p) {
   $("set-show-lastseen").checked = s.showLastSeen !== false;
   renderBlockedList();
 }
-$("btn-save-settings").onclick = async () => {
+bind("btn-save-settings", "click", async () => {
   await db.ref("users/" + state.uid + "/settings").update({
     whoCanMessage: $("set-who-msg").checked ? "anyoneIFollow" : "followers",
     showOnline: $("set-show-online").checked,
     showLastSeen: $("set-show-lastseen").checked
   });
   toast("Settings saved");
-};
-}
+});
 
 
 // ---------- 11. Chat list & permissions ----------
@@ -538,14 +540,13 @@ async function canMessage(uid) {
     db.ref("blocks/" + uid + "/" + state.uid).get(),
     db.ref("users/" + uid).get()
   ]);
-  if (iBlock.exists() || theyBlock.exists()) return false; // blocked users can't chat
+  if (iBlock.exists() || theyBlock.exists()) return false;
   const t = theirProfile.val();
   if (!t) return false;
   const s = t.settings || {};
   if (s.whoCanMessage === "anyoneIFollow") {
     return (await db.ref("following/" + state.uid + "/" + uid).get()).exists();
   }
-  // default: their followers can message them
   return (await db.ref("followers/" + uid + "/" + state.uid).get()).exists();
 }
 
@@ -558,7 +559,6 @@ function loadChatList() {
     const items = [];
     for (const cid of cids) {
       const peerUid = cid.split("_").find(u => u !== state.uid);
-      // read each conversation's own meta (rules allow participants to read their chat)
       const meta = (await db.ref("chats/" + cid + "/meta").get()).val() || {};
       if (filter && !(meta.lastMessage || "").toLowerCase().includes(filter)) continue;
       const peer = (await db.ref("users/" + peerUid).get()).val();
@@ -579,7 +579,7 @@ function loadChatList() {
     });
   });
 }
-$("chat-search").oninput = () => loadChatList();
+bind("chat-search", "input", () => loadChatList());
 
 // ---------- 12. Individual chat ----------
 let currentChat = null;
@@ -604,7 +604,7 @@ async function openChat(peerUid) {
   db.ref("userChats/" + state.uid + "/" + cid).set(true);
   db.ref("userChats/" + peerUid + "/" + cid).set(true);
 }
-$("btn-back-chats").onclick = () => { clearChatListeners(); currentChat = null; showPage("chats"); };
+bind("btn-back-chats", "click", () => { clearChatListeners(); currentChat = null; showPage("chats"); });
 
 function bindPeerPresence(peerUid) {
   const el = $("chat-peer-status");
@@ -634,6 +634,7 @@ function listenMessages(cid) {
     markMessagesSeen(cid, snap);
   });
 }
+
 
 function renderMessages(snap) {
   const box = $("messages");
@@ -685,11 +686,10 @@ function markMessagesSeen(cid, snap) {
   if (Object.keys(upd).length) db.ref("messages/" + cid).update(upd);
 }
 
-
 // ---------- 13. Sending messages ----------
 let replyTarget = null;
-$("btn-send").onclick = sendText;
-$("chat-input").addEventListener("keydown", e => { if (e.key === "Enter") sendText(); });
+bind("btn-send", "click", sendText);
+bind("chat-input", "keydown", e => { if (e.key === "Enter") sendText(); });
 
 async function sendText() {
   if (!currentChat) return;
@@ -719,7 +719,7 @@ async function pushMessage(msg) {
 }
 
 // Image messages (stored in Firebase Storage, only URL in DB)
-$("chat-image").onchange = async e => {
+bind("chat-image", "change", async e => {
   if (!currentChat) return;
   if (isRestricted(state.profile)) return toast(restrictMsg(state.profile));
   const file = e.target.files[0];
@@ -732,11 +732,11 @@ $("chat-image").onchange = async e => {
   const url = await snap.ref.getDownloadURL();
   await pushMessage({ sender: state.uid, imageUrl: url, text: "",
     timestamp: firebase.database.ServerValue.TIMESTAMP, seenBy: {}, reactions: {} });
-};
+});
 
 // Typing indicator (auto-clears after 2s of inactivity)
 let typingTimer = null;
-$("chat-input").addEventListener("input", () => {
+bind("chat-input", "input", () => {
   if (!currentChat) return;
   db.ref("chats/" + currentChat.cid + "/meta/typing/" + state.uid).set(true);
   clearTimeout(typingTimer);
@@ -744,149 +744,4 @@ $("chat-input").addEventListener("input", () => {
     if (currentChat) db.ref("chats/" + currentChat.cid + "/meta/typing/" + state.uid).remove();
   }, 2000);
 });
-
-// ---------- 14. Message actions ----------
-function showReplyPreview(m) {
-  replyTarget = { text: m.text || "📷 Photo", sender: m.sender };
-  $("reply-preview").innerHTML = `<span>↩ Replying to: ${escapeHtml(m.text || "Photo")}</span>
-    <button class="icon-btn" id="btn-cancel-reply">✕</button>`;
-  $("reply-preview").classList.remove("hidden");
-  $("btn-cancel-reply").onclick = cancelReply;
-}
-function cancelReply() {
-  replyTarget = null;
-  $("reply-preview").classList.add("hidden");
-}
-function reactToMessage(m) {
-  const emoji = prompt("React with an emoji (e.g. ❤️ 😂 👍):");
-  if (!emoji) return;
-  const path = "messages/" + currentChat.cid + "/" + m.id + "/reactions/" + emoji + "/" + state.uid;
-  db.ref(path).get().then(s => s.exists() ? db.ref(path).remove() : db.ref(path).set(true));
-  if (m.sender !== state.uid) {
-    pushNotification(m.sender, "reaction",
-      state.profile.username + " reacted " + emoji + " to your message", currentChat.cid);
-  }
-}
-function editMessage(m) {
-  const text = prompt("Edit your message:", m.text);
-  if (text === null || !text.trim()) return;
-  db.ref("messages/" + currentChat.cid + "/" + m.id).update({ text: text.trim(), edited: true });
-}
-async function deleteMessage(m) {
-  if (!(await confirmBox("Delete this message for everyone?"))) return;
-  await db.ref("messages/" + currentChat.cid + "/" + m.id)
-    .update({ deleted: true, text: "", imageUrl: "" });
-}
-
-
-function togglePin(m) {
-  const path = "chats/" + currentChat.cid + "/meta/pinnedMessage";
-  db.ref(path).get().then(s => {
-    if (s.exists() && s.val().id === m.id) db.ref(path).remove();
-    else db.ref(path).set({ id: m.id, text: m.text || "📷 Photo" });
-  });
-}
-function renderPinned() {
-  const path = "chats/" + currentChat.cid + "/meta/pinnedMessage";
-  db.ref("chats/" + currentChat.cid + "/meta/pinnedMessage").on("value", s => {
-    const p = s.val();
-    const banner = $("pinned-banner");
-    banner.classList.toggle("hidden", !p);
-    if (p) banner.innerHTML = `<span>📌 ${escapeHtml(p.text)}</span><button class="icon-btn" id="unpin">✕</button>`;
-    const up = $("unpin");
-    if (up) up.onclick = () => db.ref("chats/" + currentChat.cid + "/meta/pinnedMessage").remove();
-  });
-  chatListeners.push({ off: () => db.ref("chats/" + currentChat.cid + "/meta/pinnedMessage").off() });
-}
-async function reportMessage(m) {
-  const reason = prompt("Why are you reporting this message?");
-  if (!reason) return;
-  await db.ref("reports/" + db.ref("reports").push().key).set({
-    reporterUid: state.uid, reportedUid: m.sender, messageId: m.id,
-    chatId: currentChat.cid, reason, status: "pending",
-    timestamp: firebase.database.ServerValue.TIMESTAMP
-  });
-  toast("Report submitted. Thank you.");
-}
-
-// ---------- 15. Conversation search / menu (mute, delete) ----------
-$("btn-chat-search").onclick = () => $("msg-search").classList.toggle("hidden");
-$("msg-search").addEventListener("input", () => {
-  db.ref("messages/" + currentChat.cid).orderByChild("timestamp").limitToLast(200).get()
-    .then(s => renderMessages(s));
-});
-$("btn-chat-menu").onclick = async () => {
-  if (!currentChat) return;
-  const choice = prompt("Type: mute / unmute / clear");
-  const cid = currentChat.cid;
-  if (choice === "mute") {
-    await db.ref("chats/" + cid + "/meta/muted/" + state.uid).set(true);
-    toast("Conversation muted");
-  } else if (choice === "unmute") {
-    await db.ref("chats/" + cid + "/meta/muted/" + state.uid).remove();
-    toast("Conversation unmuted");
-  } else if (choice === "clear") {
-    if (await confirmBox("Delete this entire conversation for BOTH users? This cannot be undone.")) {
-      await db.ref("messages/" + cid).remove();
-      await db.ref("chats/" + cid).remove();
-      await db.ref("userChats/" + state.uid + "/" + cid).remove();
-      const other = cid.split("_").find(u => u !== state.uid);
-      await db.ref("userChats/" + other + "/" + cid).remove();
-      toast("Conversation deleted");
-      clearChatListeners();
-      showPage("chats");
-    }
-  } else if (choice) toast("Unknown option");
-};
-
-// ---------- 16. Notifications ----------
-function pushNotification(uid, type, text, chatId = "") {
-  const n = { type, fromUid: state.uid, text, chatId,
-    timestamp: firebase.database.ServerValue.TIMESTAMP, read: false };
-  const write = () =>
-    db.ref("notifications/" + uid + "/" + db.ref("notifications/" + uid).push().key).set(n);
-  // respect conversation mute for message notifications
-  if (type === "message" && chatId) {
-    db.ref("chats/" + chatId + "/meta/muted/" + uid).get().then(s => { if (!s.exists()) write(); });
-  } else write();
-}
-function listenNotifications(uid) {
-  track(db.ref("notifications/" + uid), "value", snap => {
-    const box = $("notif-list");
-    let unread = 0;
-    box.innerHTML = "";
-    const notifs = [];
-    snap.forEach(c => notifs.push({ id: c.key, ...c.val() }));
-    notifs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    notifs.forEach(n => {
-      if (!n.read) unread++;
-      const row = document.createElement("div");
-      row.className = "list-item";
-      row.innerHTML = `<div class="grow"><div class="small text">${notifIcon(n.type)} ${escapeHtml(n.text)}</div>
-        <div class="muted small">${timeStr(n.timestamp)}</div></div>`;
-      row.onclick = () => {
-        if (n.type === "message" && n.chatId) {
-          const peer = n.chatId.split("_").find(u => u !== state.uid);
-          openChat(peer);
-        }
-      };
-      box.appendChild(row);
-    });
-    const badge = $("notif-badge");
-    badge.classList.toggle("hidden", unread === 0);
-    badge.textContent = unread;
-  });
-}
-function notifIcon(t) {
-  return { message: "💬", follow: "👤", follow_request: "📨", follow_accept: "✅", reaction: "🙂" }[t] || "🔔";
-}
-$("btn-mark-read").onclick = () => {
-  db.ref("notifications/" + state.uid).once("value").then(snap => {
-    const upd = {};
-    snap.forEach(c => { if (!c.val().read) upd[c.key + "/read"] = true; });
-    if (Object.keys(upd).length) db.ref("notifications/" + state.uid).update(upd);
-  });
-};
-
-// (Navigation handlers are attached near the top of the file in bindNav().)
 
