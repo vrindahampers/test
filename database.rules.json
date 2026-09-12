@@ -1,0 +1,122 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "role": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+        },
+        "status": {
+          ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+        },
+        "counters": {
+          ".read": "auth != null",
+          "$key": {
+            ".write": "false"
+          }
+        },
+        "usernameLower": {
+          ".write": "false"
+        }
+      }
+    },
+
+    "usernames": {
+      ".read": "auth != null",
+      "$name": {
+        ".write": "auth != null && ((!data.exists() && !root.child('usernames').child($name).exists()) || data.val() === auth.uid)",
+        ".validate": "newData.val() === auth.uid && $name === newData.val()"
+      }
+    },
+
+    "followers": {
+      "$uid": {
+        ".read": "auth != null",
+        "$follower": {
+          ".write": "auth != null && auth.uid === $follower && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        }
+      }
+    },
+
+    "following": {
+      "$uid": {
+        ".read": "auth != null",
+        "$target": {
+          ".write": "auth != null && auth.uid === $uid && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        }
+      }
+    },
+
+    "followRequests": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$sender": {
+          ".write": "auth != null && (auth.uid === $sender || auth.uid === $uid) && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        }
+      }
+    },
+
+    "blocks": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "$blocked": {
+          ".write": "auth != null && auth.uid === $uid && root.child('users').child(auth.uid).child('status').val() === 'active'"
+        }
+      }
+    },
+
+    "chats": {
+      "$chatId": {
+        ".read": "auth != null && $chatId.includes(auth.uid)",
+        ".write": "auth != null && $chatId.includes(auth.uid) && root.child('users').child(auth.uid).child('status').val() === 'active'"
+      }
+    },
+
+    "messages": {
+      "$chatId": {
+        ".read": "auth != null && $chatId.includes(auth.uid) && root.child('users').child(auth.uid).child('status').val() !== 'banned' && root.child('users').child(auth.uid).child('status').val() !== 'disabled'",
+        "$msgId": {
+          ".read": "auth != null && $chatId.includes(auth.uid)",
+          ".write": "auth != null && $chatId.includes(auth.uid) && root.child('users').child(auth.uid).child('status').val() === 'active' && (newData.child('sender').val() === auth.uid || data.child('sender').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['sender','timestamp'])"
+        }
+      }
+    },
+
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$notifId": {
+          ".write": "auth != null && (auth.uid === $uid || (root.child('users').child(auth.uid).child('status').val() === 'active' && data.child('type').exists()))",
+          ".validate": "newData.hasChildren(['type','fromUid','timestamp'])"
+        }
+      }
+    },
+
+    "reports": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$reportId": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || data.child('reporterUid').val() === auth.uid)",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (newData.child('reporterUid').val() === auth.uid && !data.exists()))",
+        ".validate": "newData.hasChildren(['reporterUid','reportedUid','reason','timestamp','status'])"
+      }
+    },
+
+    "adminLogs": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "presence": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}

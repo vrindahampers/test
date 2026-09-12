@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chatly — Social Chat App</title>
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ============================= AUTH PAGES ============================= -->
+<div id="auth-page" class="auth-page">
+  <div class="auth-card">
+    <h1 class="logo">💬 Chatly</h1>
+
+    <!-- Login -->
+    <div id="login-view">
+      <h2>Log in</h2>
+      <input id="login-identifier" type="text" placeholder="Email or username">
+      <input id="login-password" type="password" placeholder="Password">
+      <button id="btn-login" class="btn primary">Log in</button>
+      <div class="row-links">
+        <a href="#" id="link-forgot">Forgot password?</a>
+        <a href="#" id="link-email-login">Login via email link</a>
+      </div>
+      <p class="muted">New here? <a href="#" id="link-signup">Create an account</a></p>
+    </div>
+
+    <!-- Signup -->
+    <div id="signup-view" class="hidden">
+      <h2>Sign up</h2>
+      <input id="su-username" type="text" placeholder="Username (letters/numbers, min 3)">
+      <input id="su-display" type="text" placeholder="Display name">
+      <input id="su-email" type="email" placeholder="Email">
+      <input id="su-password" type="password" placeholder="Password (min 6 chars)">
+      <button id="btn-signup" class="btn primary">Create account</button>
+      <p class="muted">Have an account? <a href="#" id="link-login">Log in</a></p>
+    </div>
+
+    <!-- Email link -->
+    <div id="email-link-view" class="hidden">
+      <h2>Passwordless login</h2>
+      <input id="el-email" type="email" placeholder="Your email">
+      <button id="btn-send-link" class="btn primary">Send login link</button>
+      <p class="muted">We'll email you a magic link. Open it on this browser to log in.</p>
+      <p class="muted"><a href="#" id="link-login2">Back to login</a></p>
+    </div>
+
+    <div id="auth-msg" class="auth-msg hidden"></div>
+  </div>
+</div>
+
+<!-- ============================= MAIN APP ============================= -->
+<div id="app-page" class="app-page hidden">
+
+  <!-- Sidebar (desktop) / header -->
+  <aside id="sidebar" class="sidebar">
+    <div class="side-head">
+      <img id="my-avatar" class="avatar" src="assets/default-avatar.png" alt="me">
+      <div class="side-head-info">
+        <div id="my-displayname" class="bold">Me</div>
+        <div id="my-username" class="muted small">@user</div>
+      </div>
+      <button id="btn-logout" class="icon-btn" title="Logout">⏻</button>
+    </div>
+    <nav id="main-nav" class="side-nav">
+      <a data-page="chats" class="active">💬 Chats</a>
+      <a data-page="search">🔍 Search</a>
+      <a data-page="requests" id="nav-requests">📨 Requests <span id="req-badge" class="badge hidden"></span></a>
+      <a data-page="notifications">🔔 Notifications <span id="notif-badge" class="badge hidden"></span></a>
+      <a data-page="profile">👤 Profile</a>
+      <a data-page="settings">⚙️ Settings</a>
+    </nav>
+    <div id="restriction-banner" class="banner hidden"></div>
+  </aside>
+
+  <!-- Main content area -->
+  <main id="content" class="content">
+
+    <!-- HOME / CHAT LIST -->
+    <section id="page-chats" class="page">
+      <h2 class="page-title">Chats</h2>
+      <input id="chat-search" class="search-box" placeholder="Search conversations...">
+      <div id="chat-list" class="list"></div>
+    </section>
+
+    <!-- SEARCH USERS -->
+    <section id="page-search" class="page hidden">
+      <h2 class="page-title">Search users</h2>
+      <input id="user-search" class="search-box" placeholder="Search by username...">
+      <div id="user-results" class="list"></div>
+    </section>
+
+    <!-- INDIVIDUAL CHAT -->
+    <section id="page-chat" class="page hidden chat-page">
+      <div class="chat-header">
+        <button id="btn-back-chats" class="icon-btn mobile-only">←</button>
+        <img id="chat-avatar" class="avatar sm" src="assets/default-avatar.png">
+        <div class="chat-head-info">
+          <div id="chat-peer-name" class="bold">User</div>
+          <div id="chat-peer-status" class="muted small">offline</div>
+        </div>
+        <button id="btn-chat-search" class="icon-btn" title="Search messages">🔍</button>
+        <button id="btn-chat-menu" class="icon-btn" title="Conversation options">⋮</button>
+      </div>
+      <input id="msg-search" class="search-box hidden" placeholder="Search in conversation...">
+      <div id="pinned-banner" class="pinned-banner hidden"></div>
+      <div id="messages" class="messages"></div>
+      <div id="reply-preview" class="reply-preview hidden"></div>
+      <div id="typing-indicator" class="muted small hidden">typing…</div>
+      <div class="chat-input-row">
+        <input id="chat-input" placeholder="Type a message (emoji ok 🙂)">
+        <label class="icon-btn attach" title="Send image">📎
+          <input id="chat-image" type="file" accept="image/*" hidden>
+        </label>
+        <button id="btn-send" class="btn primary">Send</button>
+      </div>
+    </section>
+
+    <!-- PROFILE (own) -->
+    <section id="page-profile" class="page hidden">
+      <h2 class="page-title">My profile</h2>
+      <div class="profile-card">
+        <img id="profile-avatar" class="avatar xl" src="assets/default-avatar.png">
+        <label class="btn small">Change photo<input id="avatar-file" type="file" accept="image/*" hidden></label>
+        <div id="profile-stats" class="profile-stats"></div>
+
+    <!-- FOLLOWERS / FOLLOWING / REQUESTS lists -->
+    <section id="page-list" class="page hidden">
+      <h2 id="list-title" class="page-title">List</h2>
+      <div id="generic-list" class="list"></div>
+    </section>
+
+    <!-- NOTIFICATIONS -->
+    <section id="page-notifications" class="page hidden">
+      <h2 class="page-title">Notifications</h2>
+      <button id="btn-mark-read" class="btn small">Mark all as read</button>
+      <div id="notif-list" class="list"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="page-settings" class="page hidden">
+      <h2 class="page-title">Settings</h2>
+      <div class="settings-card">
+        <h3>Privacy</h3>
+        <label class="checkbox"><input id="set-who-msg" type="checkbox"> Anyone I follow can message me (off = followers only)</label>
+        <label class="checkbox"><input id="set-show-online" type="checkbox"> Show my online status</label>
+        <label class="checkbox"><input id="set-show-lastseen" type="checkbox"> Show my last seen</label>
+        <button id="btn-save-settings" class="btn primary">Save settings</button>
+        <h3>Blocked users</h3>
+        <div id="blocked-list" class="list"></div>
+        <h3>Account</h3>
+        <button id="btn-forgot-pw" class="btn small">Send password reset email</button>
+        <button id="btn-logout2" class="btn danger">Logout</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Bottom nav (mobile) -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <a data-page="chats">💬</a>
+    <a data-page="search">🔍</a>
+    <a data-page="requests">📨</a>
+    <a data-page="notifications">🔔</a>
+    <a data-page="profile">👤</a>
+  </nav>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="confirm-modal" class="modal hidden">
+  <div class="modal-box">
+    <p id="confirm-text">Are you sure?</p>
+    <div class="row-btns">
+      <button id="confirm-no" class="btn small">Cancel</button>
+      <button id="confirm-yes" class="btn small danger">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase compat SDK v10 -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
+
+        <div class="edit-grid">
+          <input id="edit-displayname" placeholder="Display name">
+          <input id="edit-bio" placeholder="Bio">
+          <label class="checkbox"><input id="edit-private" type="checkbox"> Private account</label>
+        </div>
+        <button id="btn-save-profile" class="btn primary">Save profile</button>
+      </div>
+    </section>
+
+    <!-- OTHER USER PROFILE -->
+    <section id="page-user" class="page hidden">
+      <button id="btn-back-user" class="btn small">← Back</button>
+      <div class="profile-card">
+        <img id="user-avatar" class="avatar xl" src="assets/default-avatar.png">
+        <div id="user-name" class="bold lg"></div>
+        <div id="user-username" class="muted"></div>
+        <div id="user-bio" class="muted"></div>
+        <div id="user-stats" class="profile-stats"></div>
+        <div id="user-actions" class="row-btns"></div>
+      </div>
+      <div id="user-list-area" class="list"></div>
+    </section>
+
