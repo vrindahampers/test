@@ -221,7 +221,8 @@ async function showAdminUser(uid) {
       db.ref("following/" + uid).remove(),
       db.ref("blocks/" + uid).remove(),
       db.ref("presence/" + uid).remove(),
-      db.ref("notifications/" + uid).remove()
+      db.ref("notifications/" + uid).remove(),
+      db.ref("userChats/" + uid).remove()
     ]);
     await audit("user_deleted", uid, { previousValue: p.username });
     toast("App data deleted");
