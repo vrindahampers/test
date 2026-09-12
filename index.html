@@ -3,172 +3,114 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chatly — Social Chat App</title>
+<title>Chatly Admin Panel</title>
 <link rel="stylesheet" href="style.css">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* small admin-only additions */
+.admin-wrap { display: flex; min-height: 100vh; }
+.admin-nav { width: 220px; background: #1f2c33; color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.admin-nav a { color: #cfd8dc; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+.admin-nav a.active, .admin-nav a:hover { background: #33434c; color: #fff; }
+.admin-nav h1 { font-size: 17px; color: #4ade80; margin-bottom: 14px; }
+.admin-main { flex: 1; padding: 24px; overflow-y: auto; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.stat-card { background: #fff; border-radius: 12px; padding: 16px; }
+.stat-card b { font-size: 26px; display: block; }
+.stat-card span { color: var(--muted); font-size: 13px; }
+.admin-section { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+.admin-section h3 { margin-bottom: 10px; }
+.admin-main input, .admin-main select { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; }
+.status-active { color: #15803d; } .status-suspended { color: #b45309; }
+.status-disabled { color: #b91c1c; } .status-banned { color: #7f1d1d; font-weight: 700; }
+@media (max-width: 768px) { .admin-wrap { flex-direction: column; } .admin-nav { width: 100%; flex-direction: row; overflow-x: auto; } .admin-nav h1 { display: none; } }
+</style>
 </head>
 <body>
 
-<!-- ============================= AUTH PAGES ============================= -->
-<div id="auth-page" class="auth-page">
+<!-- ================= ADMIN LOGIN ================= -->
+<div id="admin-login" class="auth-page">
   <div class="auth-card">
-    <h1 class="logo">💬 Chatly</h1>
-
-    <!-- Login -->
-    <div id="login-view">
-      <h2>Log in</h2>
-      <input id="login-identifier" type="text" placeholder="Email or username">
-      <input id="login-password" type="password" placeholder="Password">
-      <button id="btn-login" class="btn primary">Log in</button>
-      <div class="row-links">
-        <a href="#" id="link-forgot">Forgot password?</a>
-        <a href="#" id="link-email-login">Login via email link</a>
-      </div>
-      <p class="muted">New here? <a href="#" id="link-signup">Create an account</a></p>
-    </div>
-
-    <!-- Signup -->
-    <div id="signup-view" class="hidden">
-      <h2>Sign up</h2>
-      <input id="su-username" type="text" placeholder="Username (letters/numbers, min 3)">
-      <input id="su-display" type="text" placeholder="Display name">
-      <input id="su-email" type="email" placeholder="Email">
-      <input id="su-password" type="password" placeholder="Password (min 6 chars)">
-      <button id="btn-signup" class="btn primary">Create account</button>
-      <p class="muted">Have an account? <a href="#" id="link-login">Log in</a></p>
-    </div>
-
-    <!-- Email link -->
-    <div id="email-link-view" class="hidden">
-      <h2>Passwordless login</h2>
-      <input id="el-email" type="email" placeholder="Your email">
-      <button id="btn-send-link" class="btn primary">Send login link</button>
-      <p class="muted">We'll email you a magic link. Open it on this browser to log in.</p>
-      <p class="muted"><a href="#" id="link-login2">Back to login</a></p>
-    </div>
-
-    <div id="auth-msg" class="auth-msg hidden"></div>
+    <h1 class="logo">🛡️ Chatly Admin</h1>
+    <input id="ad-email" type="email" placeholder="Admin email">
+    <input id="ad-password" type="password" placeholder="Password">
+    <button id="btn-admin-login" class="btn primary">Log in</button>
+    <p class="muted small">Access is enforced by Firebase Security Rules
+      (users/{uid}/role === "admin"). A normal account that logs in here will simply
+      be denied access to all admin data.</p>
+    <div id="ad-msg" class="auth-msg hidden"></div>
   </div>
 </div>
 
-<!-- ============================= MAIN APP ============================= -->
-<div id="app-page" class="app-page hidden">
+<!-- ================= ADMIN PANEL ================= -->
+<div id="admin-panel" class="admin-wrap hidden">
+  <nav class="admin-nav">
+    <h1>🛡️ Chatly Admin</h1>
+    <a data-sec="dashboard" class="active">📊 Dashboard</a>
+    <a data-sec="users">👥 Users</a>
+    <a data-sec="reports">🚩 Reports</a>
+    <a data-sec="database">🗄️ Database</a>
+    <a data-sec="logs">📜 Audit logs</a>
+    <a id="admin-logout" style="margin-top:auto">⏻ Logout</a>
+  </nav>
 
-  <!-- Sidebar (desktop) / header -->
-  <aside id="sidebar" class="sidebar">
-    <div class="side-head">
-      <img id="my-avatar" class="avatar" src="assets/default-avatar.png" alt="me">
-      <div class="side-head-info">
-        <div id="my-displayname" class="bold">Me</div>
-        <div id="my-username" class="muted small">@user</div>
+  <main class="admin-main">
+
+    <!-- DASHBOARD -->
+    <section id="sec-dashboard">
+      <h2>Dashboard</h2>
+      <div class="stat-grid" id="stat-grid"></div>
+      <div class="admin-section"><h3>Recent registrations</h3><div id="recent-users"></div></div>
+      <div class="admin-section"><h3>Recent reports</h3><div id="recent-reports"></div></div>
+      <div class="admin-section"><h3>Recent activity</h3><div id="recent-activity"></div></div>
+    </section>
+
+    <!-- USERS -->
+    <section id="sec-users" class="hidden">
+      <h2>User management</h2>
+      <input id="admin-user-search" placeholder="Search username...">
+      <div id="admin-user-results" class="list"></div>
+      <div id="admin-user-detail" class="admin-section hidden"></div>
+    </section>
+
+    <!-- REPORTS -->
+    <section id="sec-reports" class="hidden">
+      <h2>Reports</h2>
+      <table id="reports-table"><thead><tr>
+        <th>When</th><th>Reporter</th><th>Reported</th><th>Reason</th><th>Status</th><th>Actions</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <!-- DATABASE -->
+    <section id="sec-database" class="hidden">
+      <h2>Database management</h2>
+      <div class="admin-section">
+        <select id="db-node">
+          <option value="users">users</option>
+          <option value="usernames">usernames</option>
+          <option value="followers">followers</option>
+          <option value="following">following</option>
+          <option value="followRequests">followRequests</option>
+          <option value="chats">chats (metadata)</option>
+          <option value="reports">reports</option>
+        </select>
+        <input id="db-search" placeholder="Filter records (contains)..." style="margin-left:8px">
+        <button id="btn-db-load" class="btn small primary">Load</button>
       </div>
-      <button id="btn-logout" class="icon-btn" title="Logout">⏻</button>
-    </div>
-    <nav id="main-nav" class="side-nav">
-      <a data-page="chats" class="active">💬 Chats</a>
-      <a data-page="search">🔍 Search</a>
-      <a data-page="requests" id="nav-requests">📨 Requests <span id="req-badge" class="badge hidden"></span></a>
-      <a data-page="notifications">🔔 Notifications <span id="notif-badge" class="badge hidden"></span></a>
-      <a data-page="profile">👤 Profile</a>
-      <a data-page="settings">⚙️ Settings</a>
-    </nav>
-    <div id="restriction-banner" class="banner hidden"></div>
-  </aside>
-
-  <!-- Main content area -->
-  <main id="content" class="content">
-
-    <!-- HOME / CHAT LIST -->
-    <section id="page-chats" class="page">
-      <h2 class="page-title">Chats</h2>
-      <input id="chat-search" class="search-box" placeholder="Search conversations...">
-      <div id="chat-list" class="list"></div>
+      <div class="admin-section"><div id="db-view"></div></div>
     </section>
 
-    <!-- SEARCH USERS -->
-    <section id="page-search" class="page hidden">
-      <h2 class="page-title">Search users</h2>
-      <input id="user-search" class="search-box" placeholder="Search by username...">
-      <div id="user-results" class="list"></div>
-    </section>
-
-    <!-- INDIVIDUAL CHAT -->
-    <section id="page-chat" class="page hidden chat-page">
-      <div class="chat-header">
-        <button id="btn-back-chats" class="icon-btn mobile-only">←</button>
-        <img id="chat-avatar" class="avatar sm" src="assets/default-avatar.png">
-        <div class="chat-head-info">
-          <div id="chat-peer-name" class="bold">User</div>
-          <div id="chat-peer-status" class="muted small">offline</div>
-        </div>
-        <button id="btn-chat-search" class="icon-btn" title="Search messages">🔍</button>
-        <button id="btn-chat-menu" class="icon-btn" title="Conversation options">⋮</button>
-      </div>
-      <input id="msg-search" class="search-box hidden" placeholder="Search in conversation...">
-      <div id="pinned-banner" class="pinned-banner hidden"></div>
-      <div id="messages" class="messages"></div>
-      <div id="reply-preview" class="reply-preview hidden"></div>
-      <div id="typing-indicator" class="muted small hidden">typing…</div>
-      <div class="chat-input-row">
-        <input id="chat-input" placeholder="Type a message (emoji ok 🙂)">
-        <label class="icon-btn attach" title="Send image">📎
-          <input id="chat-image" type="file" accept="image/*" hidden>
-        </label>
-        <button id="btn-send" class="btn primary">Send</button>
-      </div>
-    </section>
-
-    <!-- PROFILE (own) -->
-    <section id="page-profile" class="page hidden">
-      <h2 class="page-title">My profile</h2>
-      <div class="profile-card">
-        <img id="profile-avatar" class="avatar xl" src="assets/default-avatar.png">
-        <label class="btn small">Change photo<input id="avatar-file" type="file" accept="image/*" hidden></label>
-        <div id="profile-stats" class="profile-stats"></div>
-
-    <!-- FOLLOWERS / FOLLOWING / REQUESTS lists -->
-    <section id="page-list" class="page hidden">
-      <h2 id="list-title" class="page-title">List</h2>
-      <div id="generic-list" class="list"></div>
-    </section>
-
-    <!-- NOTIFICATIONS -->
-    <section id="page-notifications" class="page hidden">
-      <h2 class="page-title">Notifications</h2>
-      <button id="btn-mark-read" class="btn small">Mark all as read</button>
-      <div id="notif-list" class="list"></div>
-    </section>
-
-    <!-- SETTINGS -->
-    <section id="page-settings" class="page hidden">
-      <h2 class="page-title">Settings</h2>
-      <div class="settings-card">
-        <h3>Privacy</h3>
-        <label class="checkbox"><input id="set-who-msg" type="checkbox"> Anyone I follow can message me (off = followers only)</label>
-        <label class="checkbox"><input id="set-show-online" type="checkbox"> Show my online status</label>
-        <label class="checkbox"><input id="set-show-lastseen" type="checkbox"> Show my last seen</label>
-        <button id="btn-save-settings" class="btn primary">Save settings</button>
-        <h3>Blocked users</h3>
-        <div id="blocked-list" class="list"></div>
-        <h3>Account</h3>
-        <button id="btn-forgot-pw" class="btn small">Send password reset email</button>
-        <button id="btn-logout2" class="btn danger">Logout</button>
-      </div>
+    <!-- LOGS -->
+    <section id="sec-logs" class="hidden">
+      <h2>Admin audit logs</h2>
+      <div class="admin-section"><div id="logs-view"></div></div>
     </section>
 
   </main>
-
-  <!-- Bottom nav (mobile) -->
-  <nav id="bottom-nav" class="bottom-nav">
-    <a data-page="chats">💬</a>
-    <a data-page="search">🔍</a>
-    <a data-page="requests">📨</a>
-    <a data-page="notifications">🔔</a>
-    <a data-page="profile">👤</a>
-  </nav>
 </div>
 
-<div id="toast" class="toast hidden"></div>
 <div id="confirm-modal" class="modal hidden">
   <div class="modal-box">
     <p id="confirm-text">Are you sure?</p>
@@ -179,36 +121,10 @@
   </div>
 </div>
 
-<!-- Firebase compat SDK v10 -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
-<script src="script.js"></script>
+<script src="admin.js"></script>
 </body>
 </html>
-
-        <div class="edit-grid">
-          <input id="edit-displayname" placeholder="Display name">
-          <input id="edit-bio" placeholder="Bio">
-          <label class="checkbox"><input id="edit-private" type="checkbox"> Private account</label>
-        </div>
-        <button id="btn-save-profile" class="btn primary">Save profile</button>
-      </div>
-    </section>
-
-    <!-- OTHER USER PROFILE -->
-    <section id="page-user" class="page hidden">
-      <button id="btn-back-user" class="btn small">← Back</button>
-      <div class="profile-card">
-        <img id="user-avatar" class="avatar xl" src="assets/default-avatar.png">
-        <div id="user-name" class="bold lg"></div>
-        <div id="user-username" class="muted"></div>
-        <div id="user-bio" class="muted"></div>
-        <div id="user-stats" class="profile-stats"></div>
-        <div id="user-actions" class="row-btns"></div>
-      </div>
-      <div id="user-list-area" class="list"></div>
-    </section>
-
